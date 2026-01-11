@@ -9,28 +9,32 @@ declare global {
 
 export function findByProps(...props: string[]): any {
     try {
-        if (typeof (window as any).modules !== 'undefined') {
-            // Standard Web/Desktop Client Mod way (sometimes works on RN)
-            return (window as any).modules.find((m: any) => m && props.every(p => m[p] !== undefined));
+        const globalAny = globalThis as any;
+
+        // 1. Vendetta (Standard for plugins)
+        if (globalAny.vendetta?.metro?.findByProps) {
+            return globalAny.vendetta.metro.findByProps(...props);
         }
 
-        // Revenge/Metro way (Generic placeholder logic)
-        // In actual execution, Revenge provides specific API for this.
-        // We will assume a global 'findByProps' exists or 'revenge.modules.findByProps'
-
-        if (typeof (globalThis as any).revenge !== 'undefined' && (globalThis as any).revenge.modules) {
-            return (globalThis as any).revenge.modules.findByProps(...props);
+        // 2. Revenge (Alternative namespace)
+        if (globalAny.revenge?.modules?.findByProps) {
+            return globalAny.revenge.modules.findByProps(...props);
         }
 
-        // Common ReVanced/Revenge pattern fallback
-        if (typeof (globalThis as any).modules !== 'undefined') {
-            return (globalThis as any).modules.find((m: any) => m && props.every(p => m[p] !== undefined));
+        // 3. Webpack/Metro global (Vencord/BetterDiscord style)
+        if (globalAny.modules?.find) {
+            return globalAny.modules.find((m: any) => m && props.every(p => m[p] !== undefined));
         }
 
-        console.warn("findByProps: Environment not found, returning mock");
+        // 4. Webpack chunk global (Web client)
+        if (globalAny.webpackChunkdiscord_app) {
+            // This is harder to iterate without specific logic, skipping for now
+        }
+
+        console.warn(`[ActivityTracker] findByProps failed to find environment for props: ${props.join(", ")}`);
         return null;
     } catch (e) {
-        console.error("findByProps error:", e);
+        console.error("[ActivityTracker] findByProps error:", e);
         return null;
     }
 }
