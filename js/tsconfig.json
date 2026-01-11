@@ -11,6 +11,7 @@
 		// Type checking
 		"strict": true,
 		"skipLibCheck": true,
+		"jsx": "react",
 		"noFallthroughCasesInSwitch": true,
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,

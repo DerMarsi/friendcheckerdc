@@ -1,0 +1,10 @@
+{
+    "name": "Activity Tracker",
+    "description": "Logs specific user activity to the console",
+    "author": "User",
+    "version": "1.0.0",
+    "id": "com.user.activitytracker",
+    "main": "index.js",
+    "type": "revenge-plugin",
+    "license": "MIT"
+}
