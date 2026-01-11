@@ -3,7 +3,7 @@
     "description": "Logs specific user activity to the console",
     "authors": [
         {
-            "name": "User",
+            "name": "DerMarsi",
             "id": "123456789012345678"
         }
     ],
@@ -12,5 +12,5 @@
         "icon": "ic_activity_24px"
     },
     "license": "MIT",
-    "hash": "GZYAoU3r2u/gojJPOrW27BOIWhw5Vbbu7F83sh30T9k="
+    "hash": "qPe8n5rgn+rtZLd+x2OjgKABWa6DAa6M3nqPSOvUt7M="
 }

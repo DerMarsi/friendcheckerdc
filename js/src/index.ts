@@ -51,7 +51,7 @@ const onVoiceStateUpdate = (data: any) => {
 export default {
     name: "Activity Tracker",
     description: "Logs specific user activity to the console",
-    author: "User",
+    author: "DerMarsi",
     version: "1.0.0",
 
     start: () => {
