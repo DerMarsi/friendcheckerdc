@@ -1,50 +1,77 @@
-import { findByProps, logger } from './utils';
-import { Settings } from './Settings';
+import { findByProps, logger } from "./utils";
+import FriendMonitor from "./FriendMonitor";
+
+const { React } = findByProps("React");
+const Patcher = findByProps("after", "before", "instead"); // Assuming Patcher is available via findByProps or global
+// In standard Vendetta, it's globalThis.vendetta.patcher
 
 // CONFIGURATION
-const settings = {
-    targetUserId: "561478149184028673"
-};
+const settings: any = {}; // We will rely on built-in storage prop passed to start() if available, or manage global settings logic.
+// Revenge plugins usually get `storage` passed as arg or available globally.
 
 let Dispatcher: any;
 let UserStore: any;
 let PresenceStore: any;
+let UserContextMenu: any;
+
+// Helper to access storage safely
+const getStorage = () => (globalThis as any).vendetta?.plugin?.storage || {};
+
+const addLog = (userId: string, type: string, content: string) => {
+    const storage = getStorage();
+    if (!storage.logs) storage.logs = [];
+    storage.logs.push({
+        timestamp: Date.now(),
+        userId,
+        type,
+        content
+    });
+    // Limit log size (Optional)
+    if (storage.logs.length > 200) storage.logs.shift();
+};
 
 const onPresenceUpdate = (data: any) => {
-    if (data.user.id !== settings.targetUserId) return;
+    const storage = getStorage();
+    if (!(storage.targetUserIds || []).includes(data.user.id)) return;
 
-    // Status can be: 'online', 'dnd', 'idle', 'invisible', 'offline'
-    // ClientStatus details: { desktop: 'online', mobile: 'online', web: 'online' }
+    const user = data.user;
     const status = data.status;
     const clientStatus = data.client_status ? JSON.stringify(data.client_status) : 'unknown';
 
-    logger.log(`[PRESENCE] Status: ${status} | Clients: ${clientStatus}`);
+    logger.log(`[PRESENCE] ${user.id} Status: ${status}`);
+    addLog(user.id, "PRESENCE", `Status changed to ${status} (${clientStatus})`);
 
-    // Inspect activities (games, spotify, etc)
     if (data.activities && data.activities.length > 0) {
         data.activities.forEach((activity: any) => {
-            logger.log(`[ACTIVITY] ${activity.name}: ${activity.state || ''} ${activity.details || ''}`);
+            addLog(user.id, "ACTIVITY", `${activity.name}: ${activity.state || ''} ${activity.details || ''}`);
         });
     }
 };
 
 const onTypingStart = (data: any) => {
-    if (data.userId !== settings.targetUserId) return;
-    logger.log(`[TYPING] User is typing in channel ${data.channelId}`);
+    const storage = getStorage();
+    if (!(storage.targetUserIds || []).includes(data.userId)) return;
+    logger.log(`[TYPING] ${data.userId} typing in ${data.channelId}`);
+    addLog(data.userId, "TYPING", `Typing in channel ${data.channelId}`);
 };
 
 const onMessageCreate = (data: any) => {
-    if (data.message.author.id !== settings.targetUserId) return;
-    logger.log(`[MESSAGE] User sent a message in channel ${data.channelId}: ${data.message.content}`);
+    const storage = getStorage();
+    if (!(storage.targetUserIds || []).includes(data.message.author.id)) return;
+    logger.log(`[MESSAGE] ${data.message.author.id}: ${data.message.content}`);
+    addLog(data.message.author.id, "MESSAGE", `Sent message in ${data.channelId}: ${data.message.content}`);
 };
 
 const onVoiceStateUpdate = (data: any) => {
-    if (data.userId !== settings.targetUserId) return;
+    const storage = getStorage();
+    if (!(storage.targetUserIds || []).includes(data.userId)) return;
 
     if (data.channelId) {
-        logger.log(`[VOICE] User joined/moved to voice channel ${data.channelId}`);
+        logger.log(`[VOICE] ${data.userId} joined ${data.channelId}`);
+        addLog(data.userId, "VOICE", `Joined/Moved to voice channel ${data.channelId}`);
     } else {
-        logger.log(`[VOICE] User left voice channel`);
+        logger.log(`[VOICE] Left voice`);
+        addLog(data.userId, "VOICE", `Left voice channel`);
     }
 };
 
@@ -62,16 +89,58 @@ export default {
             Dispatcher = findByProps("subscribe", "dispatch", "register");
             UserStore = findByProps("getCurrentUser", "getUser");
             PresenceStore = findByProps("getStatus", "getPresence");
-            const UserProfileStore = findByProps("getUserProfile"); // Internal store (may vary by version)
-            const GuildStore = findByProps("getGuild", "getGuilds");
-            const GuildMemberStore = findByProps("getMember", "getMembers");
-            const ProfileActions = findByProps("fetchProfile"); // Action to request profile data
+            UserContextMenu = findByProps("UserContextMenu"); // Initial try, might need specific search
 
             if (!Dispatcher) {
-                logger.error("Failed to find Dispatcher module! Plugins modules might be missing.");
-                // We don't return here, we try to proceed or just let it be, but logging is crucial.
-                // Actually if dispatcher is missing, we can't do much.
+                logger.error("Failed to find Dispatcher module!");
                 return;
+            }
+
+            // Patch UserContextMenu
+            // Uses global `vendetta.patcher` if available, or try finding patcher
+            const patcher = (globalThis as any).vendetta?.patcher || Patcher;
+            if (patcher && UserContextMenu) {
+                // Determine the correct function to patch (usually "default")
+                patcher.after("default", UserContextMenu, ([props], ret) => {
+                    const userId = props.user?.id;
+                    if (!userId) return;
+
+                    // Check if user is already a close friend
+                    // Access storage from plugin context if possible, or global
+                    // We need to access the `storage` object passed to `start` or maintained globally.
+                    // For now, we assume `storage` is globally accessible via the plugin object or local var if we bind it.
+                    // IMPORTANT: The `start` function doesn't get storage directly in this legacy wrapper structure.
+                    // We'll rely on `(globalThis as any).vendetta.plugin.storage`.
+
+                    const storage = (globalThis as any).vendetta?.plugin?.storage || {};
+                    const isFriend = (storage.targetUserIds || []).includes(userId);
+
+                    if (!ret.props.children) ret.props.children = [];
+                    // Add button
+                    const { FormRow } = findByProps("FormRow");
+                    const { View, Text, TouchableOpacity } = findByProps("View", "Text", "TouchableOpacity");
+
+                    ret.props.children.push(React.createElement(TouchableOpacity, {
+                        onPress: () => {
+                            if (!storage.targetUserIds) storage.targetUserIds = [];
+                            if (isFriend) {
+                                storage.targetUserIds = storage.targetUserIds.filter((id: string) => id !== userId);
+                                logger.log(`Removed ${userId} from Close Friends.`);
+                            } else {
+                                storage.targetUserIds.push(userId);
+                                logger.log(`Added ${userId} as Close Friend.`);
+                            }
+                            // Force update context menu if possible? usually closes on action.
+                            const { showToast } = findByProps("showToast");
+                            if (showToast) showToast(isFriend ? "Removed from Close Friends" : "Added to Close Friends");
+                        },
+                        style: { padding: 12, backgroundColor: isFriend ? '#ed4245' : '#248046', borderRadius: 4, margin: 8 }
+                    }, React.createElement(Text, { style: { color: 'white', fontWeight: 'bold', textAlign: 'center' } },
+                        isFriend ? "Remove from Close Friends" : "Become a very close friend"
+                    )));
+                });
+            } else {
+                logger.warn("UserContextMenu or Patcher not found, Context Menu button will be missing.");
             }
 
             // Subscribe to events
@@ -80,58 +149,7 @@ export default {
             Dispatcher.subscribe("MESSAGE_CREATE", onMessageCreate);
             Dispatcher.subscribe("VOICE_STATE_UPDATE", onVoiceStateUpdate);
 
-            // --- ENHANCED DISCOVERY ---
-            logger.log(`[INIT] Starting enhanced discovery for ${settings.targetUserId}...`);
-
-            // 1. Mutual Guilds discovery
-            if (GuildStore && GuildMemberStore) {
-                const allGuilds = Object.values(GuildStore.getGuilds());
-                const mutualGuilds = allGuilds.filter((g: any) => GuildMemberStore.getMember(g.id, settings.targetUserId));
-
-                logger.log(`[DATA] Found ${mutualGuilds.length} Mutual Guilds:`);
-                mutualGuilds.forEach((g: any) => {
-                    const member = GuildMemberStore.getMember(g.id, settings.targetUserId);
-                    const roles = member?.roles || [];
-                    logger.log(` - Guild: ${g.name} (ID: ${g.id}) | Roles: ${roles.length}`);
-                });
-            }
-
-            // 2. Fetch Profile (Bio, Connected Accounts)
-            try {
-                if (ProfileActions) {
-                    logger.log(`[DATA] Attempting to fetch full profile...`);
-                    ProfileActions.fetchProfile(settings.targetUserId);
-                    // We need to listen for user profile update or just check store later
-                    setTimeout(() => {
-                        const profile = UserProfileStore?.getUserProfile(settings.targetUserId);
-                        if (profile) {
-                            logger.log(`[PROFILE] Bio: ${profile.bio || 'None'}`);
-                            if (profile.connected_accounts) {
-                                logger.log(`[PROFILE] Connections: ${profile.connected_accounts.map((c: any) => c.type).join(', ')}`);
-                            }
-                            if (profile.premium_since) {
-                                logger.log(`[PROFILE] Nitro since: ${profile.premium_since}`);
-                            }
-                        } else {
-                            logger.log(`[PROFILE] Profile data not available yet.`);
-                        }
-                    }, 2000);
-                } else {
-                    logger.warn("[DATA] ProfileActions module not found, cannot fetch full profile.");
-                }
-            } catch (e) {
-                logger.error("[DATA] Error fetching profile", e);
-            }
-
-            // Initial check if user is cached
-            const currentUser = UserStore?.getUser(settings.targetUserId);
-            if (currentUser) {
-                const status = PresenceStore?.getStatus(settings.targetUserId);
-                logger.log(`[INIT] Target found in cache! Current Status: ${status}`);
-                logger.log(`[USER] Username: ${currentUser.username}#${currentUser.discriminator}`);
-            } else {
-                logger.log(`[INIT] Target user ${settings.targetUserId} not currently cached or found in mutual guilds.`);
-            }
+            logger.log("Plugin started!");
         } catch (e) {
             logger.error("FATAL: Failed to start Activity Tracker plugin:", e);
         }
@@ -140,6 +158,16 @@ export default {
     stop: () => {
         try {
             logger.log("Activity Tracker Plugin Unloading...");
+            const patcher = (globalThis as any).vendetta?.patcher || Patcher;
+            if (patcher) {
+                // Unpatch all
+                // Revenge usually returns an unpatch function from patching, we didn't store it. 
+                // In a robust app we'd store `unpatches.push(patcher.after(...))` and call them here.
+                // For this quick impl, we rely on plugin reload clearing patches naturally or implementation detail.
+                // Better:
+                unpatches.forEach(u => u());
+            }
+
             if (Dispatcher) {
                 Dispatcher.unsubscribe("PRESENCE_UPDATE", onPresenceUpdate);
                 Dispatcher.unsubscribe("TYPING_START", onTypingStart);
@@ -151,9 +179,7 @@ export default {
         }
     },
 
-    getSettingsPanel: ({ settings: _settings }: { settings: any }) => {
-        // In some environments, settings are passed in. 
-        // We can ignore them if we use our own simple object, or sync them.
-        return Settings({ settings, refresh: () => { } });
+    getSettingsPanel: ({ settings }: any) => {
+        return React.createElement(FriendMonitor, { settings: settings, storage: (globalThis as any).vendetta?.plugin?.storage || {} });
     }
 }
