@@ -4,7 +4,7 @@ const result = await build({
     entrypoints: ["src/index.ts"],
     outdir: "..", // Output to root directory
     target: "browser", // React Native environment is closer to browser for bundling purposes
-    format: "esm",
+    format: "cjs",
     minify: true,
     naming: "index.js", // Force output filename to index.js
 });
